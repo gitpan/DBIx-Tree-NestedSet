@@ -3,7 +3,7 @@ package DBIx::Tree::NestedSet::Manage;
 use strict;
 use Carp;
 use base 'CGI::Application';
-$DBIx::Tree::NestedSet::Manage::VERSION='0.10';
+$DBIx::Tree::NestedSet::Manage::VERSION='0.11';
 
 #POD Below!!
 
@@ -282,7 +282,7 @@ See the "templates", "cgi-bin", and "graphics" directories of this distribution 
 Example Module:
 
  package My::NestedSetTree;
- use DBIx::Tree::NestedSet::Manage();
+ use base 'DBIx::Tree::NestedSet::Manage';
  use strict;
 
  sub cgiapp_prerun{

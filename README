@@ -22,9 +22,9 @@ provides a CGI interface to your tree.
 
 NOTES
 
-This module has been tested on MySQL version 4.0.18, but I've taken pains
-to avoid using non-standard SQL so it SHOULD work on other RDBMSs. If you're
-using this module successfully on another system, please let me know.
+This module has been tested on MySQL versions 4.0.18 and 3.23.49, but I've 
+taken pains to avoid using non-standard SQL so it SHOULD work on other RDBMSs. 
+If you're using this module successfully on another system, please let me know.
  
 COPYRIGHT AND LICENSE
  

@@ -2,7 +2,7 @@ package DBIx::Tree::NestedSet;
 
 use strict;
 use Carp;
-$DBIx::Tree::NestedSet::VERSION='0.10';
+$DBIx::Tree::NestedSet::VERSION='0.11';
 
 #POD Below!!
 
@@ -16,16 +16,36 @@ sub new{
 	      left_column_name	=>	$params{left_column_name}	|| 'lft',
 	      right_column_name	=>	$params{right_column_name}	|| 'rght',
 	      table_name	=>	$params{table_name}		|| 'nested_set',
+	      id_name		=>	$params{id_name}		|| 'id',
 	      no_alter_table	=>	$params{no_alter_table}		|| undef,
+	      db_type		=>	$params{db_type}		|| 'MySQL',
 	      no_locking	=>	$params{no_locking}		|| undef
 	     };
     bless $self, $class;
     croak("Not a DBI connection")
       unless($params{dbh}->isa('DBI::db'));
+
     foreach('left_column_name','right_column_name','table_name'){
 	croak('"'.$self->{$_}."\" doesn't look like a valid SQL table or column name to me")
 	  unless ($self->{$_} =~ m/^[_A-Za-z\d]+$/);
     }
+
+    my $db_type=$self->{db_type};
+    
+    my $driver = "DBIx::Tree::NestedSet::$db_type";
+    eval "require $driver;" or
+      croak("That DBD source doesn't have a driver implemented yet");
+
+    my $db_obj=$driver->new(
+			    dbh			=>	$self->{dbh},
+			    left_column_name	=>	$self->{left_column_name},
+			    right_column_name	=>	$self->{right_column_name},
+			    table_name		=>	$self->{table_name},
+			    no_alter_table	=>	$self->{no_alter_table},
+			    id_name		=>	$self->{id_name},
+			    no_locking		=>	$self->{no_locking}
+			   );
+    $self->{_db_obj}=$db_obj;
     #$self->{start_id}=$params{start_id}|| scalar $self->{dbh}->selectrow_array('select min('.$self->{left_column_name}.')  from '.$self->{table_name} );
     $params{dbh}->{RaiseError} = 1 if(not defined $params{No_RaiseError});
     $params{dbh}->trace($params{trace}) if($params{trace});
@@ -39,8 +59,9 @@ sub get_root{
     my $self=shift;
     my $left=$self->{left_column_name};
     my $table=$self->{table_name};
+    my $id=$self->{id_name};
     my ($min_left)=$self->{dbh}->selectrow_array("select min($left) from $table");
-    return scalar $self->{dbh}->selectrow_array("select id from ".$self->{table_name}." where $left=?",undef,($min_left));
+    return scalar $self->{dbh}->selectrow_array("select $id from ".$self->{table_name}." where $left=?",undef,($min_left));
 }
 ########################################
 
@@ -48,7 +69,7 @@ sub get_root{
 ################################################################################
 sub _lock_tables{
     my $self=shift;
-    $self->{dbh}->do(qq|lock tables $self->{table_name} as n1 write, $self->{table_name} as n2 write, $self->{table_name} write|) if(! defined $self->{no_locking});
+    $self->{_db_obj}->_lock_tables;
 }
 ########################################
 
@@ -56,7 +77,7 @@ sub _lock_tables{
 ################################################################################
 sub _unlock_tables{
     my $self=shift;
-    $self->{dbh}->do(qq|unlock tables|) if(! defined $self->{no_locking});
+    $self->{_db_obj}->_unlock_tables;
 }
 ########################################
 
@@ -88,6 +109,7 @@ sub add_child_to_right{
     my $left=$self->{left_column_name};
     my $right=$self->{right_column_name};
     my $table=$self->{table_name};
+    my $id=$self->{id_name};
     $self->_lock_tables();
     if(!$params{id} && scalar $dbh->selectrow_array("select count(*) from $table")){
 	#They haven't given us an id for this child.  Assume they want to add a child DIRECTLY 
@@ -95,7 +117,7 @@ sub add_child_to_right{
 	$params{id}=$self->get_root();
     }
     if(not defined $self->{_prepared_rightmost_SQL_statement}){
-	$self->{_prepared_rightmost_SQL_statement}=$dbh->prepare("SELECT $right FROM $table WHERE id=?");
+	$self->{_prepared_rightmost_SQL_statement}=$dbh->prepare("SELECT $right FROM $table WHERE $id=?");
     }
     my ($rightmost)=$dbh->selectrow_array($self->{_prepared_rightmost_SQL_statement},undef,($params{id}));
     if(not defined $self->{_prepared_rightmost_SQL_tree_fix_statement}){
@@ -106,12 +128,12 @@ $right = CASE WHEN $right >= ? THEN $right + 2  ELSE $right END WHERE $right >= 
 		       );
     }
     $self->{_prepared_rightmost_SQL_tree_fix_statement}->execute($rightmost,$rightmost,$rightmost);
-    my ($params,$values)=_get_params_and_values(\%params,$left,$right);
+    my ($params,$values)=_get_params_and_values(\%params,$left,$right,$id);
     my ($columns,$placeholders)=_prepare_columns_and_placeholders_for_adding_child_to_right($params,$left,$right);
     $self->_alter_table_if_needed($params);
     my $insert=$dbh->prepare("INSERT INTO $table ($columns) VALUES($placeholders)");
     $insert->execute($rightmost||1,$rightmost||1,@$values);
-    my ($id)=$dbh->do("select max(id) from $table");
+    my ($id)=$dbh->do("select max($id) from $table");
     $self->_unlock_tables();
     return $id;
 }
@@ -126,6 +148,7 @@ sub add_child_to_left{
     my $left=$self->{left_column_name};
     my $right=$self->{right_column_name};
     my $table=$self->{table_name};
+    my $id=$self->{id_name};
     
     $self->_lock_tables();
     if(!$params{id} && scalar $dbh->selectrow_array("select count(*) from $table")){
@@ -135,8 +158,8 @@ sub add_child_to_left{
     }
     
     if(not defined $self->{_prepared_leftmost_SQL_statement}){
-	$self->{_prepared_leftmost_SQL_statement}=$dbh->prepare("SELECT $left FROM $table WHERE id=?");
-    } 
+	$self->{_prepared_leftmost_SQL_statement}=$dbh->prepare("SELECT $left FROM $table WHERE $id=?");
+    }
     my ($leftmost)=$dbh->selectrow_array($self->{_prepared_leftmost_SQL_statement},undef,($params{id}));
     if(not defined $self->{_prepared_leftmost_SQL_tree_fix_statement}){
 	$self->{_prepared_leftmost_SQL_tree_fix_statement}=
@@ -155,12 +178,13 @@ sub add_child_to_left{
 		       );
     }
     $self->{_prepared_leftmost_SQL_tree_fix_statement}->execute($leftmost,$leftmost);
-    my ($params,$values)=_get_params_and_values(\%params,$left,$right);
+    my ($params,$values)=_get_params_and_values(\%params,$left,$right,$id);
     my ($columns,$placeholders)=_prepare_columns_and_placeholders_for_adding_child_to_left($params,$left,$right);
     $self->_alter_table_if_needed($params);
     my $insert=$dbh->prepare("INSERT INTO $table ($columns) VALUES($placeholders)");
     $insert->execute($leftmost||1,$leftmost||1,@$values);
-    my ($id)=$dbh->do("select max(id) from $table");
+    $insert->finish();
+    my ($id)=$dbh->do("select max($id) from $table");
     $self->_unlock_tables();
     return $id;
 }
@@ -179,24 +203,26 @@ sub _alter_table_if_needed{
     my $right=$self->{right_column_name};
     my $table=$self->{table_name};
     my $dbh=$self->{dbh};
+    my $id=$self->{id_name};
 
     #my %columns_we_are_requesting=map{$_=>1} @$params;
     my @columns_we_need_to_create;
     #With MySQL I could use "Explain $table" but I'd like this to be a bit more cross-RDBMS
-    my $get_columns=$dbh->prepare('select *,count(*) as _ignore_me from nested_set group by id');
+    my $get_columns=$dbh->prepare("select *,count(*) as _ignore_me_sdfas from nested_set group by $id");
     $get_columns->execute();
     my %columns_that_we_have={};
     foreach(@{$get_columns->{NAME}}){
-	$columns_that_we_have{$_}=1 if($_ ne '_ignore_me');
+	$columns_that_we_have{$_}=1 if($_ ne '_ignore_me_sdfas');
     }
     $get_columns->finish();
     foreach(@$params){
 	push @columns_we_need_to_create, $_ if(not defined $columns_that_we_have{$_});
     }
+    my $db_obj=$self->{_db_obj};
     foreach(@columns_we_need_to_create){
 	croak('"'.$_."\" doesn't look like a valid SQL table or column name to me")
 	  unless ($_ =~ m/^[_A-Za-z\d]+$/);
-	$dbh->do("alter table $table add column $_ varchar(255) not null default ''");
+	$db_obj->_alter_table($_);
 	$dbh->do("create index $_ on  $table($_)");
     }
 }
@@ -205,11 +231,11 @@ sub _alter_table_if_needed{
 
 ################################################################################
 sub _get_params_and_values{
-    my ($params,$left,$right,$no_left_or_right)=@_;
+    my ($params,$left,$right,$id,$no_left_or_right)=@_;
     my %ignore=(
 		$left=>1,
 		$right=>1,
-		id=>1
+		$id=>1
 	       );
     my @params=($no_left_or_right) ? () :($left,$right); #Keep in order. . .
     my @values;
@@ -232,12 +258,14 @@ sub edit_node{
     my $left=$self->{left_column_name};
     my $right=$self->{right_column_name};
     my $table=$self->{table_name};
+    my $id=$self->{id_name};
     $self->_lock_tables();
-    my ($params,$values)=_get_params_and_values(\%params,$left,$right,1);
+    my ($params,$values)=_get_params_and_values(\%params,$left,$right,$id,1);
     my ($columns)=_prepare_columns_and_placeholders_for_edit($params);
     $self->_alter_table_if_needed($params);
-    my $update=$dbh->prepare("update $table set $columns where id=?");
+    my $update=$dbh->prepare("update $table set $columns where $id=?");
     $update->execute(@$values,$params{id});
+    $update->finish();
     $self->_unlock_tables();
 }
 ########################################
@@ -283,7 +311,8 @@ sub get_id_by_key{
     my $right=$self->{right_column_name};
     my $table=$self->{table_name};
     my $key_name=$params{key_name};
-    my $ids=$self->{dbh}->selectcol_arrayref("select id from $table where $key_name = ?",undef,($params{key_value}));
+    my $id=$self->{id_name};
+    my $ids=$self->{dbh}->selectcol_arrayref("select $id from $table where $key_name = ?",undef,($params{key_value}));
     return (@$ids > 1) ? $ids : $ids->[0] ;
 }
 ########################################
@@ -296,9 +325,10 @@ sub get_self_and_parents_flat{
     my $left=$self->{left_column_name};
     my $right=$self->{right_column_name};
     my $table=$self->{table_name};
+    my $id=$self->{id_name};
 #    my $node=$self->{node_column_name};
     if(not defined $self->{_prepared_get_self_and_parents_flat_SQL_statement}){
-	$self->{_prepared_get_self_and_parents_flat_SQL_statement}=$dbh->prepare("select n2.* from $table as n1, $table as n2 where (n1.$left between n2.$left and n2.$right) and (n1.id=?) order by n2.$left");
+	$self->{_prepared_get_self_and_parents_flat_SQL_statement}=$dbh->prepare("select n2.* from $table as n1, $table as n2 where (n1.$left between n2.$left and n2.$right) and (n1.$id=?) order by n2.$left");
     }
     my $tree_structure=$dbh->selectall_arrayref($self->{_prepared_get_self_and_parents_flat_SQL_statement},{Columns=>{}},($params{id} || 1));
     my $level=1;
@@ -328,6 +358,7 @@ sub delete_self_and_children{
     my $left=$self->{left_column_name};
     my $right=$self->{right_column_name};
     my $table=$self->{table_name};
+    my $id=$self->{id_name};
     if(!$params{id}){
 	carp("You didn't give us an ID that we could start the delete from");
 	return [];
@@ -339,7 +370,7 @@ sub delete_self_and_children{
 	    my $poo=shift @$tree;
 	}
 	if(not defined $self->{_prepared_self_and_child_delete_SQL_statement}){
-	    $self->{_prepared_self_and_child_delete_SQL_statement}=$dbh->prepare("delete from $table where id=?");
+	    $self->{_prepared_self_and_child_delete_SQL_statement}=$dbh->prepare("delete from $table where $id=?");
 	}
 	my $ids;
 	my @tree=reverse @$tree;
@@ -410,13 +441,14 @@ sub get_self_and_children_flat{
     my $left=$self->{left_column_name};
     my $right=$self->{right_column_name};
     my $table=$self->{table_name};
+    my $id=$self->{id_name};
 #    my $node=$self->{node_column_name};
     my $id_SQL;
     if (defined $params{id}) {
-	my ($left_value,$right_value)=$dbh->selectrow_array("select $left,$right from $table where id=?",undef,($params{id}));
+	my ($left_value,$right_value)=$dbh->selectrow_array("select $left,$right from $table where $id=?",undef,($params{id}));
 	$id_SQL="and (n1.$left between " . $dbh->quote($left_value)." and ".$dbh->quote($right_value).") ";
     }
-    my $tree_structure=$dbh->selectall_arrayref("select count(n2.id) as level,n1.* from $table as n1, $table as n2 where (n1.$left between n2.$left and n2.$right) $id_SQL group by n1.id order by n1.$left",{Columns=>{}});
+    my $tree_structure=$dbh->selectall_arrayref("select count(n2.${id}) as level,n1.* from $table as n1, $table as n2 where (n1.$left between n2.$left and n2.$right) $id_SQL group by n1.${id} order by n1.$left",{Columns=>{}});
     my $start_level=$tree_structure->[0]->{level};
     if (defined $params{depth} && $tree_structure) {
 	#We wanna chop down the tree.
@@ -496,7 +528,8 @@ sub swap_nodes{
 
 ################################################################################
 sub get_hashref_of_info_by_id{
-    return $_[0]->{dbh}->selectrow_hashref("select * from ".$_[0]->{table_name}." where id=?",undef,($_[1]));
+    my $id=$_[0]->{id_name};
+    return $_[0]->{dbh}->selectrow_hashref("select * from ".$_[0]->{table_name}." where $id=?",undef,($_[1]));
 }
 ########################################
 
@@ -516,6 +549,22 @@ sub create_report{
 
 
 ################################################################################
+sub create_default_table{
+    my $self=shift;
+    $self->{_db_obj}->_create_default_table();
+}
+########################################
+
+
+################################################################################
+sub get_default_create_table_statement{
+    my $self=shift;
+    $self->{_db_obj}->_get_default_create_table_statement();
+}
+########################################
+
+
+################################################################################
 sub DESTROY{
     my $self=shift;
     foreach(keys %$self){
@@ -524,8 +573,6 @@ sub DESTROY{
 	    $self->{$_}->finish();
 	}
     }
-    $self->{dbh}->do("unlock tables") if(! defined $self->{no_locking});
-    $self->{dbh}->disconnect();
 }
 ########################################
 
@@ -569,6 +616,10 @@ new() accepts a number of parameters. You MUST pass new() a valid DBI handle.
 
 The DBI handle returned by DBI::connect().
 
+=item id_name
+
+The name of the unique ID associated with this category. Defaults to "id".
+
 =item left_column_name
 
 The name of the column that describes the left hand side of a node.  Defaults to "lft".
@@ -601,12 +652,29 @@ It probably makes sense to turn off automagical table altering after you've put 
 
 Will turn on DBI::trace() at the level you specify here and output some additional debugging info to STDERR.
 
+=item db_type
+
+The type of RDBMS you're using, currently drivers are only implemented for MySQL and SQLite. Defaults to MySQL if not defined. Drivers abstract non-portable (or non-implemented) SQL. See L<DBIx::Tree::NestedSet::MySQL> and L<DBIx::Tree::NestedSet::SQLite> for examples.
+
 =back
 
-Example:
+Examples:
 
- #Create a nested set tree with the defaults
+ #Create a nested set tree, including SQL
  my $tree=DBIx::Tree::NestedSet->new(dbh=>$dbh);
+ $tree->create_default_table();
+
+ #Create a nested set tree using SQLite and a few tweaked defaults
+ my $tree=DBIx::Tree::NestedSet->new(dbh=>$dbh,db_type=>'SQLite',id_name=>'pageID');
+ $tree->create_default_table();
+
+=head2 create_default_table
+
+Create a Nested Set table in the data source defined in $dbh that will work for the db_type you specify in new().  Any options (id_name, left_column_name, etc.) you pass to new() will be respected as well.
+
+=head2 get_default_create_table_statement
+
+Return the SQL used to create the table above as a scalar.
 
 =head2 get_root
 
@@ -802,13 +870,12 @@ You can add columns you're going to use proactively, and/or "tweak" the columns 
 
  ########################################
  CREATE TABLE nested_set (
-   id mediumint(9) NOT NULL auto_increment,
-   lft mediumint(9) NOT NULL default '0',
-   rght mediumint(9) NOT NULL default '0',
-   PRIMARY KEY  (id),
-   KEY lft (lft),
-   KEY rght (rght)
+   id mediumint(9) NOT NULL primary key,
+   lft mediumint(9) NOT NULL,
+   rght mediumint(9) NOT NULL
  );
+ CREATE INDEX lft nested_set(lft);
+ CREATE INDEX rght nested_set(rght);
  ########################################
 
 This module has only been tested on MySQL, though I suspect it should work as-is on many different RDBMSs.  Let me know if you're using it successfully.

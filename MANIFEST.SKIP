@@ -12,3 +12,4 @@ PWD
 ^Makefile\.[a-z]+$
 ^pm_to_blib$
 ~$
+^nested_set$

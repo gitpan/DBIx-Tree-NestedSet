@@ -22,9 +22,16 @@ print "ok 1\n";
 # Get the password and DSN info and connect to datasource
 open (PWD, "PWD") 
   or (print "not ok 2\n" and die "Could not open PWD for reading!");
+my $increment=0;
+my $rdbms;
 while(<PWD>) {
     chomp;
-    push @dbiparms, $_;
+    if ($increment == 0) {
+	$rdbms=$_;
+    } else {
+	push @dbiparms, $_;	
+    }
+    $increment++;
 }
 close (PWD);
 
@@ -37,37 +44,28 @@ if ( defined $dbh ) {
     die $DBI::errstr;
 }
 
-################################################################################
-# Create the table.
-my $status=$dbh->do(
-		    q|
-		    CREATE TABLE nested_set (
-					     id mediumint(9) NOT NULL auto_increment,
-					     lft mediumint(9) NOT NULL default '0',
-					     rght mediumint(9) NOT NULL default '0',
-					     PRIMARY KEY  (id),
-					     KEY lft (lft),
-					     KEY rght (rght)
-					    )
-		    |
-		   );
-
-if ( defined $status ) {
-    print "ok 3\n";
-} else {
-    print "not ok 3\n";
-    die $DBI::errstr;
-}
 
 ################################################################################
 # Create the object
-my $tree=DBIx::Tree::NestedSet->new(dbh=>$dbh);
+my $tree=DBIx::Tree::NestedSet->new(dbh=>$dbh,db_type=>$rdbms);
 
 if (defined $tree) {
+    print "ok 3\n";
+} else {
+    print "not ok 3\n";
+}
+
+################################################################################
+# Create the table.
+my $status=$tree->create_default_table();
+
+if ( defined $status ) {
     print "ok 4\n";
 } else {
     print "not ok 4\n";
+    die $DBI::errstr;
 }
+
 
 ################################################################################
 # Create the root node
@@ -80,6 +78,7 @@ if (compare_tree($dbh,[
     print "ok 5\n";
 }  else {
     print "not ok 5\n";
+    die $DBI::errstr;
 }
 
 ################################################################################
@@ -98,6 +97,7 @@ if (compare_tree($dbh,[
     print "ok 6\n";
 }  else {
     print "not ok 6\n";
+    die $DBI::errstr;
 }
 
 ################################################################################
@@ -119,6 +119,7 @@ if (compare_tree($dbh,[
     print "ok 7\n";
 }  else {
     print "not ok 7\n";
+    die $DBI::errstr;
 }
 
 ################################################################################
@@ -142,7 +143,9 @@ if (compare_tree($dbh, [
     print "ok 8\n";
 }  else {
     print "not ok 8\n";
+    die $DBI::errstr;
 }
+
 
 ################################################################################
 # Delete nodes
@@ -163,6 +166,7 @@ if (compare_tree($dbh,[
     print "ok 9\n";
 }  else {
     print "not ok 9\n";
+    die $DBI::errstr;
 }
 
 ################################################################################
@@ -177,7 +181,9 @@ if($node_info->{new_column} eq 'Foo!' && $node_info->{name} eq 'My New Child Nam
     print "ok 10\n";
 } else {
     print "not ok 10\n";
+    die $DBI::errstr;
 }
+
 
 ################################################################################
 # Get parents
@@ -194,6 +200,7 @@ if (compare_tree($dbh,[
     print "ok 11\n";
 }  else {
     print "not ok 11\n";
+    die $DBI::errstr;
 }
 
 ################################################################################
@@ -211,6 +218,7 @@ if (compare_tree($dbh,[
     print "ok 12\n";
 }  else {
     print "not ok 12\n";
+    die $DBI::errstr;
 }
 
 

@@ -1,1 +1,7 @@
-None, unless you count "existing" as a change.
+Changes in DBIx::Tree::NestedSet 0.11
+
+Removed the DBI::disconnect() and "unlock tables" statement in DESTROY(). Oops.
+Added some missing DBI::finish()es.
+Abstracted out the RDBMS-specific stuff into separate driver classes. See "DBIx::Tree::NestedSet::MySQL" for an example. Should make "porting" to different RDBMSs very easy.
+Created "DBIx::Tree::NestedSet::MySQL" and "DBIx::Tree::NestedSet::SQLite" driver classes. If you wanted to create a driver class for another RDBMS, you should probably look at source of the MySQL class first.
+Created "create_default_table" and "get_default_create_table_statement" methods that call to the RDBMS driver classes.
