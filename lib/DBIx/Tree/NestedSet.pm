@@ -2,7 +2,7 @@ package DBIx::Tree::NestedSet;
 
 use strict;
 use Carp;
-$DBIx::Tree::NestedSet::VERSION='0.12';
+$DBIx::Tree::NestedSet::VERSION='0.13';
 
 #POD Below!!
 
@@ -133,7 +133,7 @@ $right = CASE WHEN $right >= ? THEN $right + 2  ELSE $right END WHERE $right >= 
     $self->_alter_table_if_needed($params);
     my $insert=$dbh->prepare("INSERT INTO $table ($columns) VALUES($placeholders)");
     $insert->execute($rightmost||1,$rightmost||1,@$values);
-    my ($new_id)=$dbh->do("select max($id) from $table");
+    my ($new_id)=$dbh->selectrow_array("select max($id) from $table");
     $self->_unlock_tables();
     return $new_id;
 }
@@ -184,7 +184,7 @@ sub add_child_to_left{
     my $insert=$dbh->prepare("INSERT INTO $table ($columns) VALUES($placeholders)");
     $insert->execute($leftmost||1,$leftmost||1,@$values);
     $insert->finish();
-    my ($new_id)=$dbh->do("select max($id) from $table");
+    my ($new_id)=$dbh->selectrow_array("select max($id) from $table");
     $self->_unlock_tables();
     return $new_id;
 }
@@ -548,11 +548,12 @@ sub get_hashref_of_info_by_id{
 ################################################################################
 sub get_hashref_of_info_by_id_with_level{
     my $self=shift;
+    my $wanted_id=shift;
     my $left=$self->{left_column_name};
     my $right=$self->{right_column_name};
     my $table=$self->{table_name};
     my $id=$self->{id_name};
-    return $self->{dbh}->selectrow_hashref("select count(n2.$id) as level,n1.* from $table as n1, $table as n2 where (n1.$left between n2.$left and n2.$right) and n1.$id=? group by n1.$id",undef,($_[1]));
+    return $self->{dbh}->selectrow_hashref("select count(n2.$id) as level,n1.* from $table as n1, $table as n2 where (n1.$left between n2.$left and n2.$right) and n1.$id=? group by n1.$id",undef,($wanted_id));
 }
 ########################################
 

@@ -1,3 +1,8 @@
+Changes in DBIx::Tree::NestedSet 0.13 
+
+Fixed the return value from the add_* methods. Sigh. It should now properly return the id.
+Fixed get_hashref_of_info_by_id_with_level() to actually work.
+
 Changes in DBIx::Tree::NestedSet 0.12 
 
 Fixed get_parents_flat(), which shift()ed when it should've pop()ed.
