@@ -13,12 +13,13 @@ my $db_type='SQLite';
 #my $db_type='MySQL';
 my $tree=DBIx::Tree::NestedSet->new(
 				    dbh=>$dbh,
+				    table_name=>'food',
 				    db_type=>$db_type
 				   );
 
 #Let's see how the table will be created for this driver
-print "Default Create Table Statement for $db_type:\n";
-print $tree->get_default_create_table_statement()."\n";
+#print "Default Create Table Statement for $db_type:\n";
+#print $tree->get_default_create_table_statement()."\n";
 
 #Let's create it.
 $tree->create_default_table();
@@ -67,6 +68,44 @@ foreach my $child (@$children) {
 
 #Mineral? Get rid of it.
 $tree->delete_self_and_children(id=>$mineral_id);
+
+$dbh->do('create table nutrition (food_id int not null primary key,description text not null)');
+my $insert_nutrition=$dbh->prepare('insert into nutrition(food_id,description) values(?,?)');
+my $food=$tree->get_self_and_children_flat();
+foreach my $food_item(@$food) {
+    $insert_nutrition->execute($food_item->{id},$food_item->{name}." is/are good for you, in moderation");
+}
+
+#Normally you wouldn't look up a nodes value by key, but you can.
+#you'll know the node id because you're browsing the hierarchy.
+
+my $veggie_info=$tree->get_hashref_of_info_by_id($tree->get_id_by_key(key_name=>'name',key_value=>'Vegetable'));
+
+my $vegetables_without_level=$dbh->selectall_arrayref(q|
+select food.name,nutrition.description from food,nutrition
+where
+food.id=nutrition.food_id and
+food.lft between ? and ?|,{Columns=>{}},($veggie_info->{lft},$veggie_info->{rght}));
+
+print "\nVeggie info without level information:\n";
+foreach (@$vegetables_without_level) {
+    print $_->{description}."\n";
+}
+
+
+my $vegetables_with_level=$dbh->selectall_arrayref(q|
+select count(n2.id) as level,nutrition.description,n1.* 
+from food as n1, food as n2, nutrition 
+where (n1.lft between n2.lft and n2.rght) 
+and (n1.lft between ? and ?)
+and nutrition.food_id=n1.id
+group by n1.id order by n1.lft|,{Columns=>{}},($veggie_info->{lft},$veggie_info->{rght}));
+
+print "\nVeggie info with level information:\n";
+foreach (@$vegetables_with_level) {
+    print "Level: ".$_->{level}."\t".$_->{description}."\n";
+}
+
 
 #Print the rudimentary report built into the module.
 print "\nThe Complete Tree:\n";

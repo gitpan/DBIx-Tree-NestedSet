@@ -3,7 +3,7 @@ package DBIx::Tree::NestedSet;
 use strict;
 use warnings;
 use Carp;
-$DBIx::Tree::NestedSet::VERSION='0.15';
+$DBIx::Tree::NestedSet::VERSION='0.16';
 
 #POD Below!!
 
@@ -573,27 +573,18 @@ sub get_self_and_children_flat{
 	# If they have changed the id name but still pass in the ID value in the id parameter, fix it.
 	$params{$id_name}=$params{id} 
     }
-    my $id_SQL;
+    my $id_SQL='';
+    my $start_node_info={};
     if (defined $params{$id_name}) {
-	my ($left_value,$right_value)=$dbh->selectrow_array("select $left,$right from $table where $id_name=?",undef,($params{$id_name}));
-	$id_SQL="and (n1.$left between " . $dbh->quote($left_value)." and ".$dbh->quote($right_value).") ";
+	$start_node_info=$self->get_hashref_of_info_by_id_with_level($params{$id_name});
+	$id_SQL="and (n1.$left between " . $dbh->quote($start_node_info->{$left})." and ".$dbh->quote($start_node_info->{$right}).") ";
     }
-    my $tree_structure=$dbh->selectall_arrayref("select count(n2.${id_name}) as level,n1.* from $table as n1, $table as n2 where (n1.$left between n2.$left and n2.$right) $id_SQL group by n1.${id_name} order by n1.$left",{Columns=>{}});
-    my $start_level=$tree_structure->[0]->{level};
-    if (defined $params{depth} && $tree_structure) {
-	#We wanna chop down the tree.
-	my @temp_tree;
-	if (defined $params{depth}) {
-	    foreach my $node (@$tree_structure) {
-		if ($node->{level} <= ($params{depth} + $start_level)) {
-		    push @temp_tree,$node;
-		}
-	    }
-	}
-	return \@temp_tree;
-    } else {
-	return $tree_structure;
+    my $depth_having_SQL='';
+    if($params{depth}){
+	$depth_having_SQL='having level <= '.$dbh->quote(($params{depth} + $start_node_info->{level}));
     }
+    my $tree_structure=$dbh->selectall_arrayref("select count(n2.${id_name}) as level,n1.* from $table as n1, $table as n2 where (n1.$left between n2.$left and n2.$right) $id_SQL group by n1.${id_name} $depth_having_SQL order by n1.$left",{Columns=>{}});
+    return $tree_structure;
 }
 ########################################
 
@@ -619,7 +610,8 @@ sub swap_nodes{
     my $first_id=$params{first_id};
     my $second_id=$params{second_id};
     croak("You didn't give me valid IDs to swap!\n") if(! $first_id || ! $second_id);
-    croak("You can't switch a node with itself!\n") if($first_id == $second_id);
+    #This is an "eq" below because we can now have non-numeric IDs.
+    croak("You can't switch a node with itself!\n") if($first_id eq $second_id);
 
     $self->_lock_tables();
     my $first_id_info=$self->get_hashref_of_info_by_id($first_id);
@@ -734,7 +726,7 @@ Implements a "Nested Set" parent/child tree. Example:
 
  #Create the connection. We'll use SQLite for now.
  #my $dbh=DBI->connect('DBI:mysql:test','user','pass') or die ($DBI::errstr);
- my $dbh=DBI->connect('DBI:SQLite:test') or die ($DBI::errstr);
+ my $dbh=DBI->connect('DBI:SQLite2:test') or die ($DBI::errstr);
 
  my $db_type='SQLite';
  #my $db_type='MySQL';
@@ -805,7 +797,9 @@ This module implements a "Nested Set" parent/child tree, and is focused (at leas
 
 See the "SEE ALSO" section for resources that explain the advantages and features of a nested set tree.  This module gives you arbitrary levels of nodes,  the ability to put in metadata associated with a node via simple method arguments and storage via DBI.  
 
-There are currently drivers implemented for MySQL and SQLite. It should be trivial to write one for your RDBMS, see DBIx::Tree::NestedSet::MySQL for an example driver.
+There are currently drivers implemented for MySQL and SQLite version 2. For some reason this module segfaults on my debian boxes running SQLite 3. Use SQLite 2, unless you can figure out what's going on.
+
+It should be trivial to write one for your RDBMS, see DBIx::Tree::NestedSet::MySQL for an example driver.
 
 A nested set tree is "expensive" on updates because you have to edit quite a bit of the tree on inserts, deletes, or the movement of nodes.  Conversely, it is "cheaper" on just queries of the tree because nearly every action (getting children, getting parents, getting siblings, etc) can be done B<with one SQL statement>.
 
@@ -865,7 +859,7 @@ Will turn on DBI::trace() at the level you specify here and output some addition
 
 =item db_type
 
-The type of RDBMS you're using, currently drivers are only implemented for MySQL and SQLite. Defaults to MySQL if not defined. Drivers abstract non-portable (or non-implemented) SQL. See L<DBIx::Tree::NestedSet::MySQL> and L<DBIx::Tree::NestedSet::SQLite> for examples.
+The type of RDBMS you're using, currently drivers are only implemented for MySQL and SQLite version 2. Defaults to MySQL if not defined. Drivers abstract non-portable (or non-implemented) SQL. See L<DBIx::Tree::NestedSet::MySQL> and L<DBIx::Tree::NestedSet::SQLite> for examples.
 
 =item no_id_creation
 
@@ -1226,6 +1220,10 @@ On www.perlmonks.org,  algorithm improvement for node dropping.
 =item Tilly 
 
 On www.perlmonks.org for the original idea.
+
+=item JT Smith, plainblack.com
+
+Suggested enhancements (and submitted a patch) for the get_self_and_children() method.
 
 =back
 
