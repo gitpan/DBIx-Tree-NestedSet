@@ -2,7 +2,7 @@ package DBIx::Tree::NestedSet::MySQL;
 
 use strict;
 use Carp;
-$DBIx::Tree::NestedSet::MySQL::VERSION='0.11';
+$DBIx::Tree::NestedSet::MySQL::VERSION='0.12';
 
 ################################################################################
 sub new{
@@ -37,7 +37,7 @@ sub _lock_tables{
 sub _unlock_tables{
     my $self=shift;
     if(! defined $self->{no_locking}){
-	$self->{dbh}->do(qq|unlock tables|) 
+	$self->{dbh}->do(qq|unlock tables|)
     }
 }
 ########################################
@@ -106,7 +106,7 @@ DBIx::Tree::NestedSet::MySQL
 
 =head1 SYNOPSIS
 
-A driver class for L<DBIx::Tree::NestedSet> that implements a MySQL interface. There are no publicly accesible (uh, "available" is probably a better term) methods in this class.
+A driver class for L<DBIx::Tree::NestedSet> that implements a MySQL interface. There are no publicly available methods in this class.
 
 =cut
 

@@ -1,3 +1,11 @@
+Changes in DBIx::Tree::NestedSet 0.12 
+
+Fixed get_parents_flat(), which shift()ed when it should've pop()ed.
+Documentation fixes. Added "THANKS".
+Increased efficiency of delete_self_and_children() and delete_children() with SQL from Hansen at www.perlmonks.org. Thanks!
+Added get_hashref_of_info_by_id_with_level()
+Fixed DBIx::Tree::NestedSet::SQLite to recreate indeces upon alteration.
+
 Changes in DBIx::Tree::NestedSet 0.11
 
 Removed the DBI::disconnect() and "unlock tables" statement in DESTROY(). Oops.
@@ -5,3 +13,7 @@ Added some missing DBI::finish()es.
 Abstracted out the RDBMS-specific stuff into separate driver classes. See "DBIx::Tree::NestedSet::MySQL" for an example. Should make "porting" to different RDBMSs very easy.
 Created "DBIx::Tree::NestedSet::MySQL" and "DBIx::Tree::NestedSet::SQLite" driver classes. If you wanted to create a driver class for another RDBMS, you should probably look at source of the MySQL class first.
 Created "create_default_table" and "get_default_create_table_statement" methods that call to the RDBMS driver classes.
+
+Changes in DBIx::Tree::NestedSet 0.10
+
+New to CPAN.

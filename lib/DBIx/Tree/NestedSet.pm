@@ -2,7 +2,7 @@ package DBIx::Tree::NestedSet;
 
 use strict;
 use Carp;
-$DBIx::Tree::NestedSet::VERSION='0.11';
+$DBIx::Tree::NestedSet::VERSION='0.12';
 
 #POD Below!!
 
@@ -25,7 +25,7 @@ sub new{
     croak("Not a DBI connection")
       unless($params{dbh}->isa('DBI::db'));
 
-    foreach('left_column_name','right_column_name','table_name'){
+    foreach('left_column_name','right_column_name','table_name','id_name'){
 	croak('"'.$self->{$_}."\" doesn't look like a valid SQL table or column name to me")
 	  unless ($self->{$_} =~ m/^[_A-Za-z\d]+$/);
     }
@@ -133,9 +133,9 @@ $right = CASE WHEN $right >= ? THEN $right + 2  ELSE $right END WHERE $right >= 
     $self->_alter_table_if_needed($params);
     my $insert=$dbh->prepare("INSERT INTO $table ($columns) VALUES($placeholders)");
     $insert->execute($rightmost||1,$rightmost||1,@$values);
-    my ($id)=$dbh->do("select max($id) from $table");
+    my ($new_id)=$dbh->do("select max($id) from $table");
     $self->_unlock_tables();
-    return $id;
+    return $new_id;
 }
 ########################################
 
@@ -184,9 +184,9 @@ sub add_child_to_left{
     my $insert=$dbh->prepare("INSERT INTO $table ($columns) VALUES($placeholders)");
     $insert->execute($leftmost||1,$leftmost||1,@$values);
     $insert->finish();
-    my ($id)=$dbh->do("select max($id) from $table");
+    my ($new_id)=$dbh->do("select max($id) from $table");
     $self->_unlock_tables();
-    return $id;
+    return $new_id;
 }
 ########################################
 
@@ -345,7 +345,7 @@ sub get_self_and_parents_flat{
 sub get_parents_flat{
     my $self=shift;
     my $tree=$self->get_self_and_parents_flat(@_);
-    my $poo=shift @$tree if(@$tree);
+    my $poo=pop @$tree if(@$tree);
     return $tree;
 }
 ########################################
@@ -364,28 +364,28 @@ sub delete_self_and_children{
 	return [];
     } else {
 	$self->_lock_tables();
-	my $tree=$self->get_self_and_children_flat(id=>$params{id});
-
-	if($params{not_self}){
-	    my $poo=shift @$tree;
-	}
-	if(not defined $self->{_prepared_self_and_child_delete_SQL_statement}){
-	    $self->{_prepared_self_and_child_delete_SQL_statement}=$dbh->prepare("delete from $table where $id=?");
-	}
 	my $ids;
-	my @tree=reverse @$tree;
-	#do a "depth first" delete.
-	#This HAS to be done depth-first, because otherwise the ordering will
-	#get totally borked.
-	if(@tree){
-	    foreach my $node (@tree) {
+	if($params{not_self}){
+	    #We don't want to delete the starting node.
+	    #Start with the next level and go through them.
+
+	    my $outer_tree=$self->get_children_flat(id=>$params{id},depth=>1);
+	    foreach my $outer_node(@$outer_tree){
+		my $temp_tree=$self->get_self_and_children_flat(id=>$outer_node->{$id});
+		$self->_delete_node(id=>$outer_node->{$id});
+		foreach my $inner_node (@$temp_tree){
+		    push @$ids,$inner_node->{id};
+		}
+	    }
+	    
+	} else {
+	    #Delete it all. Hasta la bye-bye!
+	    my $tree=$self->get_self_and_children_flat(id=>$params{id});
+	    $self->_delete_node(%params);
+	    foreach my $node (@$tree){
 		push @$ids,$node->{id};
-		my $node_info=$self->get_hashref_of_info_by_id($node->{id});
-		$self->{_prepared_self_and_child_delete_SQL_statement}->execute($node->{id});
-		$self->_fix_node_ordering(dropped_left=>$node_info->{$left},dropped_right=>$node_info->{$right});
 	    }
 	}
-
 	$self->_unlock_tables();
 	return $ids;
     }
@@ -402,34 +402,45 @@ sub delete_children{
 
 
 ################################################################################
-sub _fix_node_ordering{
-    #There's no need to lock tables here, because we're called from
-    #a subroutine that already has locked tables
-    my ($self,%params)=@_;
-    my $dropped_left=$params{dropped_left};
-    my $dropped_right=$params{dropped_right};
-
+sub _delete_node{
+    my($self,%params)=@_;
     my $left=$self->{left_column_name};
     my $right=$self->{right_column_name};
-    my $table=$self->{table_name}; 
+    my $table=$self->{table_name};
+    my $id=$self->{id_name};
     my $dbh=$self->{dbh};
-    
-    if(not defined $self->{_prepared_fix_node_ordering_SQL_statement}){
-	$self->{_prepared_fix_node_ordering_SQL_statement}=
-	  $dbh->prepare(
-			qq|
-			update $table set
-			$left = 
-			CASE WHEN $left > ?
-			THEN $left - (? - ? + 1)
-			else $left END,
-			$right = 
-			CASE WHEN $right > ?
-			THEN $right - (? - ? + 1)
-			ELSE $right END
-			|);
+    my $node_info=$self->get_hashref_of_info_by_id($params{id});
+
+    if(not defined $self->{_prepared_delete_node_delete_statement}){
+	$self->{_prepared_delete_node_delete_statement}=$dbh->prepare("delete from $table where $left between ? and ?");
     }
-    $self->{_prepared_fix_node_ordering_SQL_statement}->execute($dropped_left,$dropped_right,$dropped_left,$dropped_left,$dropped_right,$dropped_left);
+    $self->{_prepared_delete_node_delete_statement}->execute($node_info->{$left},$node_info->{$right});
+    
+    if(not defined $self->{_prepared_delete_node_fix_nodes}){
+	$self->{_prepared_delete_node_fix_nodes}=
+	  $dbh->prepare("UPDATE $table
+     SET $left = CASE
+                 WHEN $left > ? THEN $left - (? - ? + 1)
+                 ELSE $left
+               END,
+         $right = CASE
+                 WHEN $right > ? THEN $right - (? - ? + 1)
+                 ELSE $right
+               END
+   WHERE $right > ?
+");
+	
+    }
+    $self->{_prepared_delete_node_fix_nodes}->execute(
+						      $node_info->{$left},
+						      $node_info->{$right},
+						      $node_info->{$left},
+						      $node_info->{$right},
+						      $node_info->{$right},
+						      $node_info->{$left},
+						      $node_info->{$left},
+						     );
+
 }
 ########################################
 
@@ -530,6 +541,18 @@ sub swap_nodes{
 sub get_hashref_of_info_by_id{
     my $id=$_[0]->{id_name};
     return $_[0]->{dbh}->selectrow_hashref("select * from ".$_[0]->{table_name}." where $id=?",undef,($_[1]));
+}
+########################################
+
+
+################################################################################
+sub get_hashref_of_info_by_id_with_level{
+    my $self=shift;
+    my $left=$self->{left_column_name};
+    my $right=$self->{right_column_name};
+    my $table=$self->{table_name};
+    my $id=$self->{id_name};
+    return $self->{dbh}->selectrow_hashref("select count(n2.$id) as level,n1.* from $table as n1, $table as n2 where (n1.$left between n2.$left and n2.$right) and n1.$id=? group by n1.$id",undef,($_[1]));
 }
 ########################################
 
@@ -818,6 +841,10 @@ Example:
 
 Will retrieve an AoH starting from $start_id going down a maximum of 2 levels.
 
+=head2 get_children_flat
+
+Same as get_self_and_children_flat but excludes the starting node.
+
 =head2 swap_nodes
 
 Takes two parameters: first_id and second_id. It will "swap" the nodes represented by these ids, essentially replacing one node with the other.  Children will tag along and order will be preserved.  swap_nodes() can be used to reorder nodes in a tree OR swap nodes to different levels within a tree.
@@ -830,7 +857,7 @@ $first_id and $second_id will be "swapped" in the tree.
 
 =head2 get_hashref_of_info_by_id
 
-Will return a hashref of the information associated with a node specified by the "id" parameter.  Umm. . . Except "level," which we return with the other get_* methods.  Computing the level would probably be expensive.
+Will return a hashref of the information associated with a node specified by the "id" parameter.  Umm. . . Except "level".
 
 This is probably dumb, but in this case you don't need to pass in the ID as a hash, because this method only every takes one argument.  Returns "undef" if a node without that ID isn't found.
 
@@ -838,6 +865,10 @@ Example:
 
  my $node_info=$tree->get_hashref_of_info_by_id($node_id);
  print $node_info->{id};
+
+=head2 get_hashref_of_info_by_id_with_level
+
+Just like get_hashref_of_info_by_id, except returns the "level" of the node within the tree as well, where the "root" node is level 1.  Computing the level is quite a bit more expensive, so you should use get_hashref_of_info_by_id normally.
 
 =head2 create_report
 
@@ -864,11 +895,12 @@ Will create a report starting from the "root" with 4 spaces of indentation per l
 
 =head1 TABLE DEFINITION
 
-The base "nested_set" table definition is below. Columns will be added when you pass extra parameters to methods noted above.
+The base "nested_set" table definition for MySQL is below. Please see each driver class (L<DBIx::Tree::NestedSet::MySQL> or L<DBIx::Tree::NestedSet::SQLite> currently) for create statements specific to your RDBMS.  Columns will be added when you pass extra parameters to methods noted above, unless "no_alter_table" is set to true in the constructor.
 
 You can add columns you're going to use proactively, and/or "tweak" the columns after you've let this module create them.  Just make sure that you use valid SQL column names for the attributes you pass to the edit_node() and add_*() methods.
 
  ########################################
+ #MySQL specific.
  CREATE TABLE nested_set (
    id mediumint(9) NOT NULL primary key,
    lft mediumint(9) NOT NULL,
@@ -878,7 +910,7 @@ You can add columns you're going to use proactively, and/or "tweak" the columns 
  CREATE INDEX rght nested_set(rght);
  ########################################
 
-This module has only been tested on MySQL, though I suspect it should work as-is on many different RDBMSs.  Let me know if you're using it successfully.
+This module has been tested on MySQL 3.x and 4.x and SQLite 2.x.
 
 =head1 WHY?
 
@@ -937,7 +969,17 @@ Keep the names of columns, the table,  and any automagically added meta-data key
 
 =head1 TODO
 
+I may implement some or all of these. PATCHES ARE WELCOME!
+
 =over 4
+
+=item *
+
+Methods to translate an adjacency list into a nested set tree.
+
+=item *
+
+The ability to associate other user-defined SQL statements with methods. "Pre-" and "post-" triggered SQL.
 
 =item *
 
@@ -955,6 +997,30 @@ Maybe create a "traversal" system other than the very simple:
  foreach my $node(@$nodes){
      #do something with the hashref that represents this node.
  }
+
+=back
+
+=head1 THANKS
+
+The following folks have provided patches, bug alerts, ideas, guidance and suggestions related directly to this module. THANKS! Sorry if I left anyone out.
+
+=over 4
+
+=item Giuseppe Maxia
+
+gmax on www.perlmonks.org. He pushed me to make it more RDBMS-independent and offered other suggestions to improve the module and documentation.
+
+=item Martin Kamerbeek
+
+www.procolix.com, a core WebGUI developer. One of the original guineau pigs. Bug fixes and feature enhancements.
+
+=item Hansen 
+
+On www.perlmonks.org,  algorithm improvement for node dropping.
+
+=item Tilly 
+
+On www.perlmonks.org for the original idea.
 
 =back
 

@@ -3,7 +3,7 @@ package DBIx::Tree::NestedSet::Manage;
 use strict;
 use Carp;
 use base 'CGI::Application';
-$DBIx::Tree::NestedSet::Manage::VERSION='0.11';
+$DBIx::Tree::NestedSet::Manage::VERSION='0.12';
 
 #POD Below!!
 

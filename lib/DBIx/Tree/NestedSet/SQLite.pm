@@ -2,7 +2,7 @@ package DBIx::Tree::NestedSet::SQLite;
 
 use strict;
 use Carp;
-$DBIx::Tree::NestedSet::SQLite::VERSION='0.11';
+$DBIx::Tree::NestedSet::SQLite::VERSION='0.12';
 
 ################################################################################
 sub new{
@@ -57,17 +57,19 @@ sub _alter_table{
     my $right=$self->{right_column_name};
     my $dbh=$self->{dbh};
 
-    my ($base_create)=$dbh->selectrow_array('select sql from sqlite_master where name = ? and type="table"',undef,($table));
+    my ($base_create)=$dbh->selectrow_array('select sql from sqlite_master where tbl_name = ? and type="table"',undef,($table));
     $base_create =~ s/^\s?create\s+table\s+$table\s?(.+)/$1/gim;
     $dbh->do('create temporary table '.$table.'_temp'.$base_create);
     $dbh->do("insert into ${table}_temp select * from $table");
     my $recreate=$base_create;
     $recreate =~ s/(.+)\)$/$1/gim;
     $recreate .= ", $name text not null)";
+    my $indeces=$dbh->selectcol_arrayref('select sql from sqlite_master where tbl_name=? and type="index"',undef,($table));
     $dbh->do("drop table $table");
     $dbh->do("create table $table ".$recreate);
-    $dbh->do(qq|CREATE INDEX $left on $table($left)|);
-    $dbh->do(qq|CREATE INDEX $right on $table($right)|);
+    foreach (@$indeces) {
+	$dbh->do($_);
+    }
     $dbh->do("insert into $table select *,'' from ${table}_temp");
     $dbh->do("drop table ".$table."_temp");
 }
@@ -128,7 +130,11 @@ DBIx::Tree::NestedSet::SQLite
 
 =head1 SYNOPSIS
 
-A driver class for L<DBIx::Tree::NestedSet> that implements an SQLite interface. There are no publicly accesible (uh, "available" is probably a better term) methods in this class.
+A driver class for L<DBIx::Tree::NestedSet> that implements an SQLite interface. There are no publicly available methods in this class.
+
+=head1 WARNING
+
+You should use this class and L<DBIx::Tree::NestedSet> to create your default table:  The way the create table is done in this class is pretty tightly tied to how the "automatic alteration" is done.
 
 =cut
 

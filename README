@@ -22,9 +22,12 @@ provides a CGI interface to your tree.
 
 NOTES
 
-This module has been tested on MySQL versions 4.0.18 and 3.23.49, but I've 
-taken pains to avoid using non-standard SQL so it SHOULD work on other RDBMSs. 
-If you're using this module successfully on another system, please let me know.
+This module has been tested on MySQL versions 4.0.18 and 3.23.49 and SQLite 2.x.
+Porting it to another RDBMS should be trivial, given the existence of RDBMS
+specific driver classes that abstract out non-portable SQL. 
+
+If you're using this module successfully on another system, please let me know
+AND SEND IN YOUR DRIVER CLASS! Please. It's how CPAN gets better.
  
 COPYRIGHT AND LICENSE
  
