@@ -221,9 +221,24 @@ if (compare_tree($dbh,[
     die $DBI::errstr;
 }
 
+################################################################################
+# Test non-numeric IDs
+# $dbh->do('alter table nested_set modify column id varchar(50) not null');
+# $tree->{no_id_creation}=1;
+# $tree->add_child_to_left(id=>$tree->get_root,name=>'Non Numeric Child',provided_primary_key=>'foo_key');
+# $tree->add_child_to_right(provided_primary_key=>'bar_key',name=>'Sub child of non-numeric keys',id=>'foo_key');
+# $tree->add_child_to_right(provided_primary_key=>'baz_key',name=>'Sub child of non-numeric keys 2',id=>'foo_key');
+# my $info=$tree->get_hashref_of_info_by_id('baz_key');
+# use Data::Dumper;
+# print Data::Dumper::Dumper($info);
+# my $info2=$tree->get_hashref_of_info_by_id_with_level('bar_key');
+# print Data::Dumper::Dumper($info2);
+
+
 
 ################################################################################
 # Clean up.
+#print $tree->create_report();
 $dbh->do('drop table nested_set');
 #unlink('PWD');
 
