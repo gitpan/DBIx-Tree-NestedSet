@@ -2,7 +2,7 @@ package DBIx::Tree::NestedSet;
 
 use strict;
 use Carp;
-$DBIx::Tree::NestedSet::VERSION='0.13';
+$DBIx::Tree::NestedSet::VERSION='0.14';
 
 #POD Below!!
 
@@ -50,6 +50,62 @@ sub new{
     $params{dbh}->{RaiseError} = 1 if(not defined $params{No_RaiseError});
     $params{dbh}->trace($params{trace}) if($params{trace});
     return $self;
+}
+########################################
+
+
+################################################################################
+sub get_table_name{
+    return $_[0]->{table_name};
+}
+########################################
+
+
+################################################################################
+sub get_left_column_name{
+    return $_[0]->{left_column_name};
+}
+########################################
+
+
+################################################################################
+sub get_right_column_name{
+    return $_[0]->{right_column_name};
+}
+########################################
+
+
+################################################################################
+sub get_id_name{
+    return $_[0]->{id_name};
+}
+########################################
+
+
+################################################################################
+sub get_dbh{
+    return $_[0]->{dbh};
+}
+########################################
+
+
+################################################################################
+sub get_db_type{
+    return $_[0]->{db_type};
+}
+########################################
+
+
+################################################################################
+sub get_no_alter_table{
+    return $_[0]->{no_alter_table};
+}
+########################################
+
+
+################################################################################
+sub get_no_locking{
+    return $_[0]->{no_locking};
 }
 ########################################
 
@@ -208,7 +264,7 @@ sub _alter_table_if_needed{
     #my %columns_we_are_requesting=map{$_=>1} @$params;
     my @columns_we_need_to_create;
     #With MySQL I could use "Explain $table" but I'd like this to be a bit more cross-RDBMS
-    my $get_columns=$dbh->prepare("select *,count(*) as _ignore_me_sdfas from nested_set group by $id");
+    my $get_columns=$dbh->prepare("select *,count(*) as _ignore_me_sdfas from $table group by $id");
     $get_columns->execute();
     my %columns_that_we_have={};
     foreach(@{$get_columns->{NAME}}){

@@ -1,3 +1,9 @@
+Changes in DBIx::Tree::NestedSet 0.14 
+
+Added get_table_name(), get_left_column_name(),get_right_column_name(),get_id_name(),get_dbh(),get_db_type(),get_no_alter_table() and get_no_locking() methods, which return whatever you passed to new().
+
+Fixed _alter_table_if_needed() to use the non-hardcoded table name.
+
 Changes in DBIx::Tree::NestedSet 0.13 
 
 Fixed the return value from the add_* methods. Sigh. It should now properly return the id.
